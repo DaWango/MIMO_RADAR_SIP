@@ -1,0 +1,30 @@
+{
+    "targets": [
+  {
+    "name": "tgt_1",
+    "init_world_pos": {
+      "x":14,
+      "y":2,
+      "z":1
+    },
+    "vel_vec": {
+      "x":-1,
+      "y":0,
+      "z":0
+    }
+  },
+  {
+    "name": "tgt_2",
+    "init_world_pos": {
+      "x":5,
+      "y":5,
+      "z":0
+    },
+    "vel_vec": {
+      "x":-1,
+      "y":0,
+      "z":0
+    }
+  }
+]
+}
