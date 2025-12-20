@@ -13,37 +13,106 @@ from sip import *
 class Radar():
     def __init__(self):
         config_path=os.path.join(os.path.dirname(__file__),"..","config","radar_config.json")
-        self.param = RadarConfig.from_json(config_path)
-        self.frontend = RadarFrontend(self.param)
-        self.backend = RadarBackend(self.param)
+        self.radar_config = RadarConfig.from_json(config_path)
+        
+        self.frontend = RadarFrontend(self.radar_config)
+        self.backend = RadarBackend(self.radar_config)
 
     def power_on(self,targets):
         data = self.frontend.start_recording(targets)
         self.backend.start_sip(data=data)
 
-class RadarFrontend(Radar):
+class RadarFrontend:
+    """
+    Frontend component for simulating FMCW radar IF signals.
 
-    def __init__(self, param):
+    The `RadarFrontend` generates a full radar data cube by simulating the
+    intermediate‑frequency (IF) signal received at each RX antenna for each
+    chirp and sample. The model includes FMCW phase terms, Doppler shift,
+    target motion, antenna geometry, and additive white Gaussian noise (AWGN).
+
+    Parameters
+    ----------
+    radar_config : object
+        Radar configuration object providing system parameters such as
+        carrier frequency, chirp bandwidth, sampling rate, number of chirps,
+        and antenna counts.
+
+    Attributes
+    ----------
+    radar_pos : ndarray, shape (3,)
+        Cartesian position of the radar in meters.
+    A_tx : float
+        Transmit amplitude scaling factor (placeholder, may be computed from
+        transmit power in future versions).
+    A_rx : float
+        Receive amplitude scaling factor (placeholder, may be computed from
+        radar equation in future versions).
+    f_c : float
+        Effective carrier frequency (center of chirp bandwidth).
+    T_k : float
+        Chirp duration in seconds.
+    m : float
+        FMCW chirp slope (Hz/s).
+    dt : float
+        Sampling interval in seconds.
+    lambda_ : float
+        Wavelength corresponding to `f_c`.
+    tx_antennas : list of RadarAntenna
+        List of transmit antenna objects with 3D coordinates.
+    rx_antennas : list of RadarAntenna
+        List of receive antenna objects with 3D coordinates.
+
+    Notes
+    -----
+    The IF signal for each target is modeled as:
+
+        u(t) = A * exp(j * phi_total)
+
+    where the total phase consists of:
+        - phi_r0  : phase due to round‑trip distance
+        - phi_dop : Doppler phase due to relative velocity
+        - phi_dist: FMCW beat frequency term (chirp slope * distance * time)
+
+    The frontend simulates:
+        - MIMO TX cycling (k % num_tx_antenna)
+        - per‑sample time evolution
+        - per‑antenna geometry
+        - AWGN based on desired SNR
+
+    The output is a complex data cube with shape:
+        (num_chirps, num_samples_per_chirp, num_rx_antenna)
+
+    Methods
+    -------
+    start_recording(with_targets)
+        Generate a full radar data cube for the provided list of targets.
+    add_awgn(iq_data, snr_db)
+        Add complex AWGN to the simulated IQ sample.
+    """
+
+
+    def __init__(self, radar_config):
         self.log = logging.getLogger(__name__)
-        self.param = param
+        self.radar_config = radar_config
         self.radar_pos = np.zeros(3)
         self.A_tx = 1 # TODO calculate A_tx dep on power
         self.A_rx = 0.8 # TODO calculate A_rx with radar eq
-        self.f_c = self.param.carrier_frequency_hz + (self.param.chirp_bandwidth_hz*0.5)
-        self.T_k = self.param.num_samples_per_chirp / self.param.sampling_rate_hz
-        self.m = self.param.chirp_bandwidth_hz / self.T_k
-        self.dt = 1 / self.param.sampling_rate_hz
+        self.f_c = self.radar_config.carrier_frequency_hz + (self.radar_config.chirp_bandwidth_hz*0.5)
+        self.T_k = self.radar_config.num_samples_per_chirp / self.radar_config.sampling_rate_hz
+        self.m = self.radar_config.chirp_bandwidth_hz / self.T_k
+        self.dt = 1 / self.radar_config.sampling_rate_hz
         self.lambda_ = c/self.f_c
         self.tx_antennas = list[RadarAntenna]
         self.rx_antennas = list[RadarAntenna]
         self._set_antennas(2,2,4,4)
 
     def __repr__(self):
-        return (f"{self.param!r}")
+        return (f"{self.radar_config!r}")
     
     def _generate_if_signal_at_t(self,t,t_index,k,targets,rx_antenna):
         phi_mulitplier = (2*pi / c)
-        cur_tx_antenna =(k % self.param.num_tx_antenna) 
+        cur_tx_antenna =(k % self.radar_config.num_tx_antenna) 
         u_t = 0
         for tgt in targets:
             dist_comb = tgt.distance_to_tx[t_index,cur_tx_antenna] + tgt.distance_to_rx[t_index,rx_antenna]
@@ -52,17 +121,17 @@ class RadarFrontend(Radar):
             phi_dist = self.m *dist_comb*t
             phi_total = phi_mulitplier * (phi_r0+phi_dop+phi_dist)
             u_t += 0.5 * self.A_tx * self.A_rx * np.exp(1j * phi_total)
-        return self.add_awgn(u_t,self.param.awgn_snr_db)
+        return self.add_awgn(u_t,self.radar_config.awgn_snr_db)
 
     def start_recording(self,with_targets):
         
-        data_cube = np.zeros((self.param.num_chirps, self.param.num_samples_per_chirp, self.param.num_rx_antenna), dtype=complex)
+        data_cube = np.zeros((self.radar_config.num_chirps, self.radar_config.num_samples_per_chirp, self.radar_config.num_rx_antenna), dtype=complex)
         t_index  = 0
-        self.log.info(f"Need to calculate {len(with_targets)*self.param.num_rx_antenna*self.param.num_chirps*self.param.num_samples_per_chirp} updates")
-        for chirp in range(self.param.num_chirps):
-            for cur_sample in range(self.param.num_samples_per_chirp):
+        self.log.info(f"Need to calculate {len(with_targets)*self.radar_config.num_rx_antenna*self.radar_config.num_chirps*self.radar_config.num_samples_per_chirp} updates")
+        for chirp in range(self.radar_config.num_chirps):
+            for cur_sample in range(self.radar_config.num_samples_per_chirp):
                 t = cur_sample * self.dt
-                for rx_antenna in range(self.param.num_rx_antenna):
+                for rx_antenna in range(self.radar_config.num_rx_antenna):
                     data_cube[chirp,cur_sample,rx_antenna] = self._generate_if_signal_at_t(t,t_index,chirp,with_targets,rx_antenna)
                 t_index += 1
         self.log.info(f"data is ready")
@@ -70,60 +139,22 @@ class RadarFrontend(Radar):
         
         return data_cube
         
-        
-
     def add_awgn(self,iq_data, snr_db):
         """
         Additive White Gaussian Noise (AWGN) to IQ data.
         snr_db: desired Signal-to-Noise Ratio in dB
         """
-        # Calculate average signal power
         sig_power = np.mean(np.abs(iq_data)**2)
 
-        # Convert SNR from dB to linear scale
         snr_linear = 10**(snr_db/10)
 
-        # Calculate noise power based on desired SNR
         noise_power = sig_power / snr_linear
 
-        # Generate complex Gaussian noise (real + imaginary parts)
         noise = np.sqrt(noise_power/2) * (
             np.random.randn(*iq_data.shape) + 1j*np.random.randn(*iq_data.shape)
         )
 
-        # Return noisy IQ data
         return iq_data + noise
-
-
-    def plot_range_time(self,data_cube, rx_index=0, radar_param=None):
-        rx_data = data_cube[:, :, rx_index]  # [chirp, sample]
-        range_fft = np.fft.fft(rx_data, axis=1)
-        amplitude = np.abs(range_fft[:, :range_fft.shape[1]//2])
-
-        if radar_param is not None:
-            fs = self.param.sampling_rate_hz
-            B = self.param.chirp_bandwidth_hz
-            N = self.param.num_samples_per_chirp
-            c = 3e8
-            freqs = np.fft.fftfreq(N, d=1/fs)[:N//2]
-            ranges = freqs * c / (2 * B)
-        else:
-            ranges = np.arange(amplitude.shape[1])
-
-        plt.figure(figsize=(8, 6))
-        plt.imshow(amplitude.T,
-                   aspect='auto',
-                   origin='lower',
-                   extent=[0, amplitude.shape[0], ranges[0], ranges[-1]],
-                   cmap='viridis')
-        plt.colorbar(label="Amplitude")
-        plt.xlabel("Chirp Index")
-        plt.ylabel("Range [m]" if radar_param else "Range Bin")
-        plt.title("Range-Time-Amplitude Plot")
-        plt.show()
-
-
-
 
     def _set_antennas(self, n_tx_x, n_tx_y, n_rx_x, n_rx_y):
 
@@ -152,24 +183,47 @@ class RadarFrontend(Radar):
         ]
         
 
-    def plot_antennas(self):
-        tx_coords = np.array([ant.rel_pos_to_frontend for ant in self.tx_antennas])
-        rx_coords = np.array([ant.rel_pos_to_frontend for ant in self.rx_antennas])
-
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-
-        ax.scatter(tx_coords[:,0], tx_coords[:,1], tx_coords[:,2], c='r', marker='o', label='TX')
-        ax.scatter(rx_coords[:,0], rx_coords[:,1], rx_coords[:,2], c='b', marker='^', label='RX')
-
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
-        ax.legend()
-        plt.show()
-
 @dataclass
 class RadarConfig():
+    """
+    Container for all radar and simulation configuration parameters.
+
+    This dataclass stores the essential system parameters required by the
+    radar frontend, backend, and processing pipeline. It can be constructed
+    directly or loaded from a JSON configuration file via `from_json()`.
+
+    Parameters
+    ----------
+    awgn_snr_db : int
+        Desired SNR level for AWGN injection in the simulated IQ data.
+    carrier_frequency_hz : int
+        Radar carrier frequency in Hz.
+    chirp_bandwidth_hz : int
+        FMCW chirp bandwidth in Hz.
+    sampling_rate_hz : int
+        ADC sampling rate in Hz.
+    num_samples_per_chirp : int
+        Number of ADC samples per chirp.
+    num_chirps : int
+        Number of chirps per frame.
+    num_tx_antenna : int
+        Number of transmit antennas.
+    num_rx_antenna : int
+        Number of receive antennas.
+
+    Notes
+    -----
+    The JSON loader expects a structure with two sections:
+        - "radar_frontend" : radar system parameters
+        - "sim_config"     : simulation‑specific parameters (e.g., SNR)
+
+    Example JSON structure:
+        {
+            "radar_frontend": { ... },
+            "sim_config": { ... }
+        }
+    """
+
     awgn_snr_db : int = 0
     carrier_frequency_hz : int = 0
     chirp_bandwidth_hz : int = 0
@@ -197,11 +251,60 @@ class RadarConfig():
         )
         
 class RadarAntenna():
+    """
+    Representation of a radar antenna element with a fixed position.
+
+    Parameters
+    ----------
+    number : int
+        Antenna index within the TX or RX array.
+    rel_pos_to_frontend : array_like, shape (3,)
+        3D position of the antenna relative to the radar frontend origin,
+        expressed in meters.
+
+    Notes
+    -----
+    Antenna positions are typically assigned by the frontend during array
+    construction. This class serves as a lightweight container for geometry
+    information used in signal simulation and MIMO processing.
+    """
+
     def __init__(self,number,rel_pos_to_frontend):
         self.number = number
         self.rel_pos_to_frontend = rel_pos_to_frontend
 
 class RadarBackend():
+    """
+    Backend processing chain for radar signal processing.
+
+    The backend constructs a `Pipeline` consisting of sequential processing
+    modules such as DC removal, windowing, TDM remapping, FFT processing,
+    and visualization. The backend receives raw IQ data from the frontend
+    and executes the full processing chain.
+
+    Parameters
+    ----------
+    radar_config : RadarConfig
+        Configuration object passed to all pipeline modules.
+
+    Notes
+    -----
+    The default pipeline includes:
+        - RemoveDC_Offset
+        - Windowing
+        - TDMRemapper
+        - RangeFFT
+        - PlotModule
+
+    Additional modules can be added or removed by modifying the pipeline
+    construction in `__init__()`.
+
+    Methods
+    -------
+    start_sip(data)
+        Execute the full signal‑processing pipeline on the provided data cube.
+    """
+
     def __init__(self, radar_config):
         self.pipeline = Pipeline(radar_config=radar_config)
         self.pipeline.add_module(RemoveDC_Offset)
@@ -210,8 +313,5 @@ class RadarBackend():
         self.pipeline.add_module(RangeFFT, axis=1, keep_single_sided=True, nfft_range='samples')
         self.pipeline.add_module(PlotModule,plot_type='range')
 
-
-
-        
     def start_sip(self, data):
         self.pipeline.run(data)

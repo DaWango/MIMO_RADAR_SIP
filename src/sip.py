@@ -1,9 +1,44 @@
+from abc import abstractmethod
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import get_window
-from scipy.constants import c, pi
+from scipy.constants import c
 
 class Pipeline:
+    """
+    Processing pipeline for sequential execution of radar signal processing modules.
+
+    The `Pipeline` manages an ordered list of `PipelineModule` instances. Each module
+    receives the current data array and a shared metadata dictionary. Modules may
+    return either:
+    - a new data array, or
+    - a tuple (data, metadata_update), where `metadata_update` is merged into the
+      global metadata dictionary.
+
+    Parameters
+    ----------
+    radar_config : object
+        Radar configuration object passed to each module upon construction.
+
+    Notes
+    -----
+    The pipeline executes modules in the order they were added. Each module must
+    implement a `run(data, metadata)` method. The metadata dictionary persists
+    across all modules and may be extended by any module.
+
+    The initial metadata contains:
+        {"orginal_data": data}
+
+    Returns
+    -------
+    tuple
+        (final_data, metadata) where:
+        - final_data : ndarray
+            Output of the last module in the pipeline.
+        - metadata : dict
+            Aggregated metadata collected throughout the pipeline.
+    """
+
     def __init__(self, radar_config):
         self.radar_config = radar_config
         self.modules = []
@@ -26,9 +61,32 @@ class Pipeline:
 
 
 class PipelineModule:
+    """
+    Abstract base class for all radar signal‑processing pipeline modules.
+
+    Each module receives the current data array and an optional metadata dictionary.
+    Subclasses must implement the `run()` method and return either:
+    - a processed data array, or
+    - a tuple (data, metadata_update), where `metadata_update` is a dictionary
+      merged into the pipeline's global metadata.
+
+    Parameters
+    ----------
+    radar_config : object
+        Radar configuration object provided to all modules for access to system
+        parameters, calibration settings, and processing configuration.
+
+    Notes
+    -----
+    This class defines the interface for all pipeline modules. Concrete subclasses
+    must override `run(data, metadata)` and must not modify the input metadata
+    in-place; instead, they should return a metadata update dictionary when needed.
+    """
+
     def __init__(self, radar_config):
         self.radar_config = radar_config
 
+    @abstractmethod
     def run(self, data, metadata=None):
         """
         Process data and optionally metadata.
@@ -37,9 +95,6 @@ class PipelineModule:
         - data (ndarray)  OR
         - (data, metadata_dict)
         """
-        raise NotImplementedError
-
-
 
 class RemoveDC_Offset(PipelineModule):
     """
@@ -95,7 +150,6 @@ class RemoveDC_Offset(PipelineModule):
             return data - dc
 
         raise ValueError("mode must be 'per_chirp_rx', 'per_rx' or 'global'.")
-
 
 
 class Windowing(PipelineModule):
@@ -163,7 +217,6 @@ class Windowing(PipelineModule):
             return data
         else:
             return data * win
-
 
 
 class TDMRemapper(PipelineModule):
@@ -245,7 +298,6 @@ class TDMRemapper(PipelineModule):
         }
         return remapped, meta_update
 
-
 class RangeFFT(PipelineModule):
     """
     Range FFT module for Pipeline.
@@ -295,6 +347,42 @@ class RangeFFT(PipelineModule):
     
 
 class PlotModule(PipelineModule):
+    """
+    Pipeline module for visualizing radar data in 2D or 3D.
+
+    This module generates range–Doppler plots from a processed data cube.
+    Depending on configuration, it produces either a 2D magnitude heatmap
+    or a 3D surface plot. The module does not modify the data and returns
+    it unchanged, serving purely as a visualization stage in the pipeline.
+
+    Parameters
+    ----------
+    radar_config : object
+        Radar configuration object providing system parameters such as
+        chirp bandwidth.
+    plot_type : str, optional
+        Type of plot to generate. Currently supported:
+        - 'range' : range–Doppler visualization (default)
+    plot3d : bool, optional
+        If True, generate a 3D surface plot instead of a 2D heatmap.
+
+    Notes
+    -----
+    Expects `plot_data` with shape:
+        (num_doppler_bins, num_range_bins, num_rx)
+    The module currently visualizes only receiver channel index 1.
+
+    Range resolution is computed as:
+        delta_r = c / (2 * chirp_bandwidth_hz)
+
+    The module displays the plot immediately using matplotlib and does not
+    return any metadata updates.
+
+    Returns
+    -------
+    ndarray
+        The input `plot_data` unchanged.
+    """
     def __init__(self, radar_config,plot_type="range",plot3d=False):
         super().__init__(radar_config)
         self.plot_type = plot_type
@@ -334,8 +422,3 @@ class PlotModule(PipelineModule):
             ax.set_ylabel("Range [m]")
             ax.set_zlabel("Magnitude")
             plt.show()
-
-
-
-
-

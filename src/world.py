@@ -8,11 +8,49 @@ import json
 import numpy as np
 
 
-class WorldSimulation():
+class WorldSimulation:
+    """
+    High‑level simulation environment for radar–target interaction.
+
+    The `WorldSimulation` class initializes a radar instance, loads target
+    definitions from configuration, computes all target trajectories and
+    geometric relations, and finally triggers the radar frontend to generate
+    a simulated data cube.
+
+    Parameters
+    ----------
+    None
+
+    Attributes
+    ----------
+    radar : Radar
+        Radar system containing frontend, backend, and configuration.
+    sim_time_res : int
+        Total number of time steps (num_chirps × num_samples_per_chirp).
+    targets : list of Target
+        List of simulated targets loaded from configuration.
+
+    Notes
+    -----
+    The simulation workflow is:
+        1. Load target definitions from JSON.
+        2. Compute per‑sample target positions and distances.
+        3. Log diagnostic information.
+        4. Trigger radar signal generation via `radar.power_on()`.
+
+    Methods
+    -------
+    place_targtes()
+        Load and construct all target objects from JSON configuration.
+    update_world()
+        Compute target trajectories and geometric relations.
+    run_simulation()
+        Execute the full radar simulation.
+    """
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.radar = Radar()
-        self.sim_time_res = self.radar.param.num_chirps * self.radar.param.num_samples_per_chirp
+        self.sim_time_res = self.radar.radar_config.num_chirps * self.radar.radar_config.num_samples_per_chirp
         self.targets = self.place_targtes()
 
         self.update_world()
@@ -21,7 +59,7 @@ class WorldSimulation():
         tgt_config_path = os.path.join(os.path.dirname(__file__),"..","config","targets.json")
         with open(tgt_config_path) as jf:
             tgt_config = json.load(jf)
-        targets = [Target.from_dict(t,self.sim_time_res,self.radar.param.num_tx_antenna,self.radar.param.num_rx_antenna) for t in tgt_config["targets"]]
+        targets = [Target.from_dict(t,self.sim_time_res,self.radar.radar_config.num_tx_antenna,self.radar.radar_config.num_rx_antenna) for t in tgt_config["targets"]]
         return targets
     
     def update_world(self):
@@ -41,6 +79,46 @@ class WorldSimulation():
 
 @dataclass
 class Target:
+    """
+    Representation of a moving radar target in 3D space.
+
+    A `Target` stores its initial position, velocity vector, and all derived
+    quantities required for radar signal simulation, including per‑sample
+    world positions, distances to TX/RX antennas, Doppler velocity, azimuth,
+    and elevation.
+
+    Parameters
+    ----------
+    name : str
+        Identifier of the target.
+    init_world_pos : ndarray, shape (3,)
+        Initial 3D position in world coordinates [m].
+    vel_vec : ndarray, shape (3,)
+        Constant velocity vector [m/s].
+    sim_time_res : int
+        Number of simulation time steps.
+    num_rx : int
+        Number of receive antennas.
+    num_tx : int
+        Number of transmit antennas.
+
+    Attributes
+    ----------
+    cur_world_pos : ndarray, shape (sim_time_res, 3)
+        Target position at each time step.
+    distance_to_radar_m : ndarray
+        Distance from target to radar origin at each time step.
+    distance_to_tx : ndarray, shape (sim_time_res, num_tx)
+        Distance to each TX antenna.
+    distance_to_rx : ndarray, shape (sim_time_res, num_rx)
+        Distance to each RX antenna.
+    rel_velocity_m_s : ndarray
+        Radial velocity relative to radar line‑of‑sight.
+    azimuth_deg : ndarray
+        Azimuth angle in degrees.
+    elevation_deg : ndarray
+        Elevation angle in degrees.
+    """
     logger = logging.getLogger(__name__) 
     name: str = ""
     init_world_pos: np.ndarray = field(default_factory=lambda: np.zeros(3))

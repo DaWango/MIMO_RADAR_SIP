@@ -1,8 +1,7 @@
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 
-
-from logging.handlers import RotatingFileHandler
 
 RESET = "\33[0m"
 COLORS = {
