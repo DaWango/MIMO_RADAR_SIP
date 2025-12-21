@@ -1,6 +1,6 @@
 {
   "sim_config":{
-    "awgn_snr_db": 5 
+    "awgn_snr_db": 15
   },
   "radar_frontend": {
     "carrier_frequency_hz": 77e9,
@@ -8,7 +8,7 @@
     "sampling_rate_hz": 10e6,
     "num_samples_per_chirp": 512,
     "num_chirps" : 128,
-    "num_tx_antenna" : 2,
+    "num_tx_antenna" : 4,
     "num_rx_antenna" : 4
   }
 }

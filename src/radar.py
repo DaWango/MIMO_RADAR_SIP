@@ -96,16 +96,24 @@ class RadarFrontend:
         self.log = logging.getLogger(__name__)
         self.radar_config = radar_config
         self.radar_pos = np.zeros(3)
-        self.A_tx = 1 # TODO calculate A_tx dep on power
-        self.A_rx = 0.8 # TODO calculate A_rx with radar eq
-        self.f_c = self.radar_config.carrier_frequency_hz + (self.radar_config.chirp_bandwidth_hz*0.5)
-        self.T_k = self.radar_config.num_samples_per_chirp / self.radar_config.sampling_rate_hz
-        self.m = self.radar_config.chirp_bandwidth_hz / self.T_k
+        self.A_tx = 1.0 # TODO calculate A_tx dep on power
+        self.A_rx = 0.7 # TODO calculate A_rx with radar eq
+        self.m = self.radar_config.chirp_bandwidth_hz / self.radar_config.T_k
         self.dt = 1 / self.radar_config.sampling_rate_hz
-        self.lambda_ = c/self.f_c
         self.tx_antennas = list[RadarAntenna]
         self.rx_antennas = list[RadarAntenna]
-        self._set_antennas(2,2,4,4)
+
+        if self.radar_config.num_tx_antenna > 2 :
+            tx = int(np.sqrt(self.radar_config.num_tx_antenna))
+        else:
+            tx = self.radar_config.num_tx_antenna
+
+        if self.radar_config.num_rx_antenna > 2 :
+            rx = int(np.sqrt(self.radar_config.num_rx_antenna))
+        else: 
+            rx = self.radar_config.num_rx_antenna
+
+        self._set_antennas(tx,tx,rx,rx)
 
     def __repr__(self):
         return (f"{self.radar_config!r}")
@@ -116,13 +124,14 @@ class RadarFrontend:
         u_t = 0
         for tgt in targets:
             dist_comb = tgt.distance_to_tx[t_index,cur_tx_antenna] + tgt.distance_to_rx[t_index,rx_antenna]
-            phi_r0 = self.f_c*dist_comb
-            phi_dop = 2* self.f_c *tgt.rel_velocity_m_s[t_index]*self.T_k*k
+            phi_r0 = self.radar_config.f_c*dist_comb
+            phi_dop = 2* self.radar_config.f_c *tgt.rel_velocity_m_s[t_index]*self.radar_config.T_k*k
             phi_dist = self.m *dist_comb*t
             phi_total = phi_mulitplier * (phi_r0+phi_dop+phi_dist)
             u_t += 0.5 * self.A_tx * self.A_rx * np.exp(1j * phi_total)
         return self.add_awgn(u_t,self.radar_config.awgn_snr_db)
 
+    @measure_time
     def start_recording(self,with_targets):
         
         data_cube = np.zeros((self.radar_config.num_chirps, self.radar_config.num_samples_per_chirp, self.radar_config.num_rx_antenna), dtype=complex)
@@ -158,7 +167,7 @@ class RadarFrontend:
 
     def _set_antennas(self, n_tx_x, n_tx_y, n_rx_x, n_rx_y):
 
-        d_rx = self.lambda_ / 2
+        d_rx = self.radar_config.lambda_ / 2
         d_tx_x = n_rx_x * d_rx
         d_tx_y = n_rx_y * d_rx
         
@@ -181,6 +190,8 @@ class RadarFrontend:
             RadarAntenna(idx+1, tx_coords[idx])
             for idx in range(tx_coords.shape[0])
         ]
+
+
         
 
 @dataclass
@@ -232,6 +243,9 @@ class RadarConfig():
     num_chirps : int = 0
     num_tx_antenna : int = 0
     num_rx_antenna : int = 0
+    f_c : int = 0
+    T_k : int = 0 
+    lambda_ : int = 0
 
     @classmethod
     def from_json(cls, json_path):
@@ -239,6 +253,8 @@ class RadarConfig():
             config_data = json.load(jf)
         radar_config = config_data["radar_frontend"]
         sim_config = config_data["sim_config"]
+
+
         return cls(
             awgn_snr_db = sim_config.get("awgn_snr_db"),
             carrier_frequency_hz = radar_config.get("carrier_frequency_hz",0),
@@ -247,7 +263,10 @@ class RadarConfig():
             num_samples_per_chirp = radar_config.get("num_samples_per_chirp",0),
             num_chirps = radar_config.get("num_chirps",0),
             num_tx_antenna = radar_config.get("num_tx_antenna",0),
-            num_rx_antenna = radar_config.get("num_rx_antenna",0)
+            num_rx_antenna = radar_config.get("num_rx_antenna",0),
+            f_c = radar_config.get("carrier_frequency_hz",0) + (radar_config.get("chirp_bandwidth_hz",1) * 0.5),
+            T_k = radar_config.get("num_samples_per_chirp") / radar_config.get("sampling_rate_hz"),
+            lambda_ = c/(radar_config.get("carrier_frequency_hz",0) + (radar_config.get("chirp_bandwidth_hz",1) * 0.5))
         )
         
 class RadarAntenna():
@@ -313,7 +332,7 @@ class RadarBackend():
         self.pipeline.add_module(TDMRemapper)
         #self.pipeline.add_module(RangeFFT, axis=1, keep_single_sided=True, nfft_range='samples')
         self.pipeline.add_module(DopplerFFT)
-        self.pipeline.add_module(PlotModule,plot_type='range')
+        self.pipeline.add_module(PlotModule)
 
     def start_sip(self, data):
         self.pipeline.run(data)
