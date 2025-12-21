@@ -39,12 +39,11 @@ class Pipeline:
             Aggregated metadata collected throughout the pipeline.
     """
 
-    def __init__(self, radar_config):
-        self.radar_config = radar_config
+    def __init__(self):
         self.modules = []
 
     def add_module(self, module_cls, **kwargs):
-        module = module_cls(self.radar_config, **kwargs)
+        module = module_cls(**kwargs)
         self.modules.append(module)
 
     def run(self, data):
@@ -82,9 +81,7 @@ class PipelineModule:
     must override `run(data, metadata)` and must not modify the input metadata
     in-place; instead, they should return a metadata update dictionary when needed.
     """
-
-    def __init__(self, radar_config):
-        self.radar_config = radar_config
+    radar_config = None
 
     @abstractmethod
     def run(self, data, metadata=None):
@@ -95,6 +92,11 @@ class PipelineModule:
         - data (ndarray)  OR
         - (data, metadata_dict)
         """
+
+    @classmethod
+    def configurePipeline(cls,radar_config):
+        cls.radar_config = radar_config
+
 
 class RemoveDC_Offset(PipelineModule):
     """
@@ -115,8 +117,8 @@ class RemoveDC_Offset(PipelineModule):
     Expects `data` shaped as (num_chirps, num_samples, num_rx_antenna)
     and complex dtype. Returns a new array with the same shape and dtype.
     """
-    def __init__(self, radar_config, mode='per_rx'):
-        super().__init__(radar_config)
+    def __init__(self, mode='per_rx'):
+        super().__init__()
         self.mode = mode  # 'per_chirp_rx', 'per_rx', or 'global'
 
     def run(self, data, metadata=None):
@@ -170,8 +172,8 @@ class Windowing(PipelineModule):
         If False, operate on a copy. Default False.
     """
 
-    def __init__(self, radar_config, window='hann', axis=1, inplace=False):
-        super().__init__(radar_config)
+    def __init__(self, window='hann', axis=1, inplace=False):
+        super().__init__()
         self.window = window
         self.axis = int(axis)
         self.inplace = bool(inplace)
@@ -239,10 +241,10 @@ class TDMRemapper(PipelineModule):
         rx_vitrual = num_tx * M_rx
     """
 
-    def __init__(self, radar_config):
-        super().__init__(radar_config)
-        self.num_tx = int(radar_config.num_tx_antenna)
-        self.num_rx = int(radar_config.num_rx_antenna)
+    def __init__(self):
+        super().__init__()
+        self.num_tx = int(self.radar_config.num_tx_antenna)
+        self.num_rx = int(self.radar_config.num_rx_antenna)
 
     def run(self, data, metadata=None):
         """
@@ -314,8 +316,8 @@ class RangeFFT(PipelineModule):
         if 'samples' (default) use axis length; if int use that nfft; if None use axis length.
     """
 
-    def __init__(self, radar_config, axis=1, keep_single_sided=True, nfft_range='samples'):
-        super().__init__(radar_config)
+    def __init__(self, axis=1, keep_single_sided=True, nfft_range='samples'):
+        super().__init__()
         self.axis = axis
         self.keep_single_sided = keep_single_sided
         self.nfft_range = nfft_range
@@ -344,7 +346,10 @@ class RangeFFT(PipelineModule):
         }
 
         return fft, meta_update
-    
+
+class DopplerFFT(PipelineModule):
+    def __init__(self):
+        super().__init__()
 
 class PlotModule(PipelineModule):
     """
@@ -383,8 +388,8 @@ class PlotModule(PipelineModule):
     ndarray
         The input `plot_data` unchanged.
     """
-    def __init__(self, radar_config,plot_type="range",plot3d=False):
-        super().__init__(radar_config)
+    def __init__(self,plot_type="range",plot3d=False):
+        super().__init__()
         self.plot_type = plot_type
         self.plot3d = plot3d
 

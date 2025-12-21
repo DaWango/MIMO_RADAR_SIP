@@ -6,7 +6,7 @@
 IQ data generation up to the SIP stage Range plotting is implemented.
 
 ### Next TODO for V1.0
-- Clean up and comment the existing code
+- Clean up and comment the existing code --> done
 - Expand configuration files and available parameters
 - SIP modules: Doppler FFT,CA-CFAR, Doppler plot, MIMO Doppler phase‑compensation, azimuth and elevation estimation
 - Implement dynamic pipeline configuration

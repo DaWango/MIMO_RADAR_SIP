@@ -306,7 +306,8 @@ class RadarBackend():
     """
 
     def __init__(self, radar_config):
-        self.pipeline = Pipeline(radar_config=radar_config)
+        self.pipeline = Pipeline()
+        PipelineModule.configurePipeline(radar_config)
         self.pipeline.add_module(RemoveDC_Offset)
         self.pipeline.add_module(Windowing)
         self.pipeline.add_module(TDMRemapper)
