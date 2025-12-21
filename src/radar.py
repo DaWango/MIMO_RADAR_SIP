@@ -311,7 +311,8 @@ class RadarBackend():
         self.pipeline.add_module(RemoveDC_Offset)
         self.pipeline.add_module(Windowing)
         self.pipeline.add_module(TDMRemapper)
-        self.pipeline.add_module(RangeFFT, axis=1, keep_single_sided=True, nfft_range='samples')
+        #self.pipeline.add_module(RangeFFT, axis=1, keep_single_sided=True, nfft_range='samples')
+        self.pipeline.add_module(DopplerFFT)
         self.pipeline.add_module(PlotModule,plot_type='range')
 
     def start_sip(self, data):

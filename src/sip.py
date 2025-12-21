@@ -351,6 +351,15 @@ class DopplerFFT(PipelineModule):
     def __init__(self):
         super().__init__()
 
+    def run(self,data,metadata=None): 
+        data = np.asarray(data) 
+        num_chirps, num_samples, num_rx_antenna = data.shape
+        
+
+        fftout = np.fft.fft2(data,axes=(0,1))
+
+        return np.fft.fftshift(fftout)
+
 class PlotModule(PipelineModule):
     """
     Pipeline module for visualizing radar data in 2D or 3D.
