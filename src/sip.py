@@ -440,18 +440,16 @@ class PlotModule(PipelineModule):
                     x_axis = np.arange(num_doppler_bins)
                     label_x = "Doppler-Bins"
                     label_y = "Range [m]"
+                    title = "Range Plot"
                 case PlotType.RANGE_DOPPLER:
                     plot_data = metadata.get("range_doppler_fft",data)
                     num_doppler_bins, num_range_bins, num_rx = plot_data.shape
                     detla_v = self.radar_config.lambda_ / ((self.radar_config.T_k *self.radar_config.num_tx_antenna)  *4 * num_doppler_bins )
                     v_max = (num_doppler_bins/2) * detla_v
                     x_axis = np.linspace(-v_max,v_max- detla_v,num_doppler_bins)
-                    #k = np.arange(num_doppler_bins) - num_doppler_bins//2
-                    #f_d= k *1/(self.radar_config.T_k* num_doppler_bins)
-                    #x_axis = f_d * (self.radar_config.lambda_/2)
                     label_x = "Velocity [m/s]"
                     label_y = "Range [m]"
-                
+                    title = "Range Doppler Plot"
                 case _:
                     raise ValueError(f"unknown plot_type selected")
             
@@ -482,6 +480,7 @@ class PlotModule(PipelineModule):
                 plt.colorbar(label=label_z)
                 plt.xlabel(label_x)
                 plt.ylabel(label_y)
+                plt.title(title)
                 plt.show()
             
             else:
@@ -494,4 +493,5 @@ class PlotModule(PipelineModule):
                 ax.set_xlabel(label_x)
                 ax.set_ylabel(label_y)
                 ax.set_zlabel(label_z)
+                ax.title(title)
                 plt.show()

@@ -5,6 +5,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 import time
+import numpy as np
 
 
 RESET = "\33[0m"
@@ -85,6 +86,14 @@ def setup_logging(level=logging.INFO,file_output = True,console_output = True):
         logger.addHandler(console_handler)
 
 
+def is_perfect_square(n):
+    r = np.sqrt(n)
+    r_int = np.rint(r).astype(int)
+    if r_int * r_int == n:
+        return True, r_int
+    else:
+        return False, r_int
+
 
 def measure_time(func):
     @wraps(func)
@@ -96,6 +105,8 @@ def measure_time(func):
         logging.getLogger().info(f"{cls}.{func.__name__} runs for {(end - start)*1000:.3f} ms")
         return result
     return wrapper
+
+
 
 
 

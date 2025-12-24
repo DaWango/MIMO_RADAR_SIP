@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import logging
 
 from sip import *
+from utility import is_perfect_square
 
 
 class Radar():
@@ -103,16 +104,17 @@ class RadarFrontend:
         self.tx_antennas = list[RadarAntenna]
         self.rx_antennas = list[RadarAntenna]
 
-        if self.radar_config.num_tx_antenna > 2 :
-            tx = int(np.sqrt(self.radar_config.num_tx_antenna))
-        else:
-            tx = self.radar_config.num_tx_antenna
+        #TODO: refactor antennen postions 
+        is_perfect, tx = is_perfect_square(self.radar_config.num_tx_antenna)
 
-        if self.radar_config.num_rx_antenna > 2 :
-            rx = int(np.sqrt(self.radar_config.num_rx_antenna))
-        else: 
-            rx = self.radar_config.num_rx_antenna
+        if not is_perfect:
+            raise ValueError(f"atm only perfect sqrt values for num_tx are valid")
 
+        is_perfect, rx = is_perfect_square(self.radar_config.num_rx_antenna)
+
+        if not is_perfect:
+            raise ValueError(f"atm only perfect sqrt values for num_rx are valid")
+        
         self._set_antennas(tx,tx,rx,rx)
 
     def __repr__(self):
@@ -164,6 +166,8 @@ class RadarFrontend:
         )
 
         return iq_data + noise
+
+
 
     def _set_antennas(self, n_tx_x, n_tx_y, n_rx_x, n_rx_y):
 
@@ -330,7 +334,7 @@ class RadarBackend():
         self.pipeline.add_module(RemoveDC_Offset)
         self.pipeline.add_module(Windowing)
         self.pipeline.add_module(TDMRemapper)
-        #self.pipeline.add_module(RangeFFT, axis=1, keep_single_sided=True, nfft_range='samples')
+        self.pipeline.add_module(RangeFFT, axis=1, keep_single_sided=True, nfft_range='samples')
         self.pipeline.add_module(DopplerFFT)
         self.pipeline.add_module(PlotModule)
 
