@@ -186,12 +186,13 @@ class Target:
                                  for tx in radar_frontend.tx_antennas])
         rx_positions = np.array([radar_frontend.radar_pos + rx.rel_pos_to_frontend
                                  for rx in radar_frontend.rx_antennas])
+
         
         self.distance_to_tx = np.linalg.norm(self.cur_world_pos[:, None, :] - tx_positions[None, :, :], axis=2)
         self.distance_to_rx = np.linalg.norm(self.cur_world_pos[:, None, :] - rx_positions[None, :, :], axis=2)
+
         
         self.rel_velocity_m_s = np.dot(rel_pos, self.vel_vec) / np.linalg.norm(rel_pos, axis=1)
-        
         self.azimuth_deg = np.degrees(np.arctan2(rel_pos[:, 1], rel_pos[:, 0]))
         self.elevation_deg = np.degrees(np.arctan2(rel_pos[:, 2], np.linalg.norm(rel_pos[:, :2], axis=1)))
 

@@ -1,6 +1,11 @@
+from dataclasses import dataclass
+from enum import Enum
+from functools import wraps
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import time
+import numpy as np
 
 
 RESET = "\33[0m"
@@ -12,12 +17,43 @@ COLORS = {
     "CRITICAL": "\033[1;31m", # Bold Red
 }
 
+###------------------###
+### ENUM definitions ###
+###------------------###
+class PlotType(Enum):
+    RANGE = 1
+    RANGE_DOPPLER = 2
 
+class ScaleDB(Enum):
+    AMPLITUDE = 1
+    POWER = 1
+
+
+###-------------------------###
+### Dataclasses definitions ###
+###-------------------------###
+@dataclass()
+class PlotConfig():
+    plot_type : PlotType = None
+    plot3d : bool = False
+    scale_db : ScaleDB = ScaleDB.AMPLITUDE
+    for_rx : int = 0
+
+
+
+
+###--------------------------###
+### helper class definitions ###
+###--------------------------###
 class ColorFormatter(logging.Formatter):
     def format(self,record):
         color = COLORS.get(record.levelname,RESET)
         record.levelname = f"{color}{record.levelname}{RESET}"
         return super().format(record=record)
+
+###------------------------------### 
+### helper functions definitions ###
+###------------------------------###
 
 def setup_logging(level=logging.INFO,file_output = True,console_output = True):
     """
@@ -48,6 +84,31 @@ def setup_logging(level=logging.INFO,file_output = True,console_output = True):
         console_handler.setFormatter(ColorFormatter(console_format))
         console_handler.setLevel(level=level)
         logger.addHandler(console_handler)
+
+
+def is_perfect_square(n):
+    r = np.sqrt(n)
+    r_int = np.rint(r).astype(int)
+    if r_int * r_int == n:
+        return True, r_int
+    else:
+        return False, r_int
+
+
+def measure_time(func):
+    @wraps(func)
+    def wrapper(self,*args, **kwargs):
+        start = time.perf_counter()
+        result = func(self,*args, **kwargs)
+        end = time.perf_counter()
+        cls = self.__class__.__name__
+        logging.getLogger().info(f"{cls}.{func.__name__} runs for {(end - start)*1000:.3f} ms")
+        return result
+    return wrapper
+
+
+
+
 
 
     

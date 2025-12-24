@@ -1,8 +1,12 @@
 from abc import abstractmethod
+import logging
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 from scipy.signal import get_window
 from scipy.constants import c
+
+from utility import PlotConfig, PlotType, ScaleDB, measure_time
 
 class Pipeline:
     """
@@ -39,14 +43,13 @@ class Pipeline:
             Aggregated metadata collected throughout the pipeline.
     """
 
-    def __init__(self, radar_config):
-        self.radar_config = radar_config
+    def __init__(self):
         self.modules = []
 
     def add_module(self, module_cls, **kwargs):
-        module = module_cls(self.radar_config, **kwargs)
+        module = module_cls(**kwargs)
         self.modules.append(module)
-
+    
     def run(self, data):
         metadata = {"orginal_data": data}
         for m in self.modules:
@@ -82,9 +85,8 @@ class PipelineModule:
     must override `run(data, metadata)` and must not modify the input metadata
     in-place; instead, they should return a metadata update dictionary when needed.
     """
-
-    def __init__(self, radar_config):
-        self.radar_config = radar_config
+    radar_config = None
+    logger = logging.getLogger(__name__)
 
     @abstractmethod
     def run(self, data, metadata=None):
@@ -95,6 +97,11 @@ class PipelineModule:
         - data (ndarray)  OR
         - (data, metadata_dict)
         """
+
+    @classmethod
+    def configurePipeline(cls,radar_config):
+        cls.radar_config = radar_config
+
 
 class RemoveDC_Offset(PipelineModule):
     """
@@ -115,11 +122,13 @@ class RemoveDC_Offset(PipelineModule):
     Expects `data` shaped as (num_chirps, num_samples, num_rx_antenna)
     and complex dtype. Returns a new array with the same shape and dtype.
     """
-    def __init__(self, radar_config, mode='per_rx'):
-        super().__init__(radar_config)
+    def __init__(self, mode='per_rx'):
+        super().__init__()
         self.mode = mode  # 'per_chirp_rx', 'per_rx', or 'global'
 
+    @measure_time
     def run(self, data, metadata=None):
+        
         """
         Execute DC offset removal.
 
@@ -133,6 +142,8 @@ class RemoveDC_Offset(PipelineModule):
         ndarray
             DC-corrected data cube (same shape and dtype as input).
         """
+        
+        self.logger.info(f"Starting with 'Remove DC Module")
         if not np.iscomplexobj(data):
             data = data.astype(np.complex128)
 
@@ -150,7 +161,6 @@ class RemoveDC_Offset(PipelineModule):
             return data - dc
 
         raise ValueError("mode must be 'per_chirp_rx', 'per_rx' or 'global'.")
-
 
 class Windowing(PipelineModule):
     """
@@ -170,12 +180,13 @@ class Windowing(PipelineModule):
         If False, operate on a copy. Default False.
     """
 
-    def __init__(self, radar_config, window='hann', axis=1, inplace=False):
-        super().__init__(radar_config)
+    def __init__(self, window='hann', axis=1, inplace=False):
+        super().__init__()
         self.window = window
         self.axis = int(axis)
         self.inplace = bool(inplace)
-
+   
+    @measure_time
     def run(self, data, metadata=None):
         """
         Execute windowing.
@@ -239,11 +250,12 @@ class TDMRemapper(PipelineModule):
         rx_vitrual = num_tx * M_rx
     """
 
-    def __init__(self, radar_config):
-        super().__init__(radar_config)
-        self.num_tx = int(radar_config.num_tx_antenna)
-        self.num_rx = int(radar_config.num_rx_antenna)
+    def __init__(self):
+        super().__init__()
+        self.num_tx = int(self.radar_config.num_tx_antenna)
+        self.num_rx = int(self.radar_config.num_rx_antenna)
 
+    @measure_time
     def run(self, data, metadata=None):
         """
         Remap data_cube into virtual array layout.
@@ -314,12 +326,13 @@ class RangeFFT(PipelineModule):
         if 'samples' (default) use axis length; if int use that nfft; if None use axis length.
     """
 
-    def __init__(self, radar_config, axis=1, keep_single_sided=True, nfft_range='samples'):
-        super().__init__(radar_config)
+    def __init__(self, axis=1, keep_single_sided=True, nfft_range='samples'):
+        super().__init__()
         self.axis = axis
         self.keep_single_sided = keep_single_sided
         self.nfft_range = nfft_range
 
+    @measure_time
     def run(self, data, metadata=None):
         data = np.asarray(data)
         axis_len = data.shape[self.axis]
@@ -337,14 +350,39 @@ class RangeFFT(PipelineModule):
             
             fft = fft.take(indices=range((nfft // 2)), axis=self.axis)
 
+        old_plot_data = metadata.get("plot_data",[])
         meta_update = {
             "nfft_range": nfft,
             "num_range_bins": fft.shape[self.axis],
             "range_fft_single_sided": self.keep_single_sided,
+            "plot_data": old_plot_data + [PlotConfig(plot_type=PlotType.RANGE)],
+            "range_fft": fft
         }
 
-        return fft, meta_update
-    
+        return data, meta_update
+
+
+class DopplerFFT(PipelineModule):
+    def __init__(self):
+        super().__init__()
+
+    @measure_time
+    def run(self,data,metadata=None): 
+        data = np.asarray(data) 
+       
+
+        fftout = np.fft.fft2(data,axes=(1,0))
+
+        range_doppler_fft =np.fft.fftshift(fftout,axes=0)
+
+
+        old_plot_data = metadata.get("plot_data",[])
+        meta_update = {
+            "plot_data": old_plot_data + [PlotConfig(plot_type=PlotType.RANGE_DOPPLER)],
+            "range_doppler_fft" : range_doppler_fft
+        }
+
+        return data, meta_update
 
 class PlotModule(PipelineModule):
     """
@@ -383,42 +421,77 @@ class PlotModule(PipelineModule):
     ndarray
         The input `plot_data` unchanged.
     """
-    def __init__(self, radar_config,plot_type="range",plot3d=False):
-        super().__init__(radar_config)
-        self.plot_type = plot_type
-        self.plot3d = plot3d
+    def __init__(self):
+        super().__init__()
 
-    def run(self,plot_data,metadata=None):
-        num_doppler_bins, num_range_bins, num_rx = plot_data.shape
+    @measure_time
+    def run(self,data,metadata=None):
+        
         delta_r = c / (self.radar_config.chirp_bandwidth_hz *2)
         
-        match self.plot_type:
-            case 'range': 
-                y_axis = np.arange(num_range_bins) * delta_r
-                x_axis = np.arange(num_doppler_bins)
-            case _:
-                raise ValueError(f"unknown plot_type selected")
+        for plot in metadata["plot_data"]:
+            
         
 
-
-        if not self.plot3d:
+            match plot.plot_type:
+                case PlotType.RANGE: 
+                    plot_data = metadata.get("range_fft",data)
+                    num_doppler_bins, num_range_bins, num_rx = plot_data.shape
+                    x_axis = np.arange(num_doppler_bins)
+                    label_x = "Doppler-Bins"
+                    label_y = "Range [m]"
+                    title = "Range Plot"
+                case PlotType.RANGE_DOPPLER:
+                    plot_data = metadata.get("range_doppler_fft",data)
+                    num_doppler_bins, num_range_bins, num_rx = plot_data.shape
+                    detla_v = self.radar_config.lambda_ / ((self.radar_config.T_k *self.radar_config.num_tx_antenna)  *4 * num_doppler_bins )
+                    v_max = (num_doppler_bins/2) * detla_v
+                    x_axis = np.linspace(-v_max,v_max- detla_v,num_doppler_bins)
+                    label_x = "Velocity [m/s]"
+                    label_y = "Range [m]"
+                    title = "Range Doppler Plot"
+                case _:
+                    raise ValueError(f"unknown plot_type selected")
             
-            plt.imshow(np.abs(plot_data[:,:,1]).T,
-                       extent=[x_axis[0], x_axis[-1], y_axis[0], y_axis[-1]],
-                       origin='lower', aspect='auto', cmap='viridis')
-            plt.colorbar(label="Magnitude")
-            plt.ylabel("Range [m]")
-            plt.xlabel("Doppler-Bins")
-            plt.show()
-        else:
+            y_axis = np.arange(num_range_bins) * delta_r
+            
+            match plot.scale_db:
+                case ScaleDB.AMPLITUDE:
+                    db_factor = 20
+                    label_z = "Amplidute [db]"
+                case ScaleDB.POWER:
+                    db_factor = 10
+                    label_z = "Power [db]"
+                case _:
+                    raise ValueError(f"unknown ScaleDB selected")
 
-            X, Y = np.meshgrid(x_axis, y_axis, indexing='ij')
-            fig = plt.figure(figsize=(12, 7))
-            ax = fig.add_subplot(111, projection='3d')
-            surf = ax.plot_surface(X, Y, np.abs(plot_data[:,:,1]),
-                                   cmap='viridis')
-            fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label="Magnitude")
-            ax.set_xlabel("Doppler-Bins")
-            ax.set_ylabel("Range [m]")
-            ax.set_zlabel("Magnitude")
-            plt.show()
+            scaled_data = db_factor * np.log10(np.abs(plot_data[:,:,plot.for_rx]).T +1e-12)
+
+            if not plot.plot3d:
+
+                plt.imshow(scaled_data,
+                           extent=[
+                                x_axis[0],
+                                x_axis[-1],
+                                y_axis[0],
+                                y_axis[-1]
+                            ],
+                           origin='lower', aspect='auto', cmap='viridis')
+                plt.colorbar(label=label_z)
+                plt.xlabel(label_x)
+                plt.ylabel(label_y)
+                plt.title(title)
+                plt.show()
+            
+            else:
+                X, Y = np.meshgrid(x_axis, y_axis, indexing='ij')
+                fig = plt.figure(figsize=(12, 7))
+                ax = fig.add_subplot(111, projection='3d')
+                surf = ax.plot_surface(X, Y, scaled_data,
+                                       cmap='viridis')
+                fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label=label_z)
+                ax.set_xlabel(label_x)
+                ax.set_ylabel(label_y)
+                ax.set_zlabel(label_z)
+                ax.title(title)
+                plt.show()
