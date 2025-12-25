@@ -23,10 +23,12 @@ COLORS = {
 class PlotType(Enum):
     RANGE = 1
     RANGE_DOPPLER = 2
+    CA_CFAR = 3
 
 class ScaleDB(Enum):
     AMPLITUDE = 1
-    POWER = 1
+    POWER = 2
+    NONE = 3
 
 
 ###-------------------------###

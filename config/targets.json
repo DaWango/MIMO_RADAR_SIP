@@ -3,7 +3,7 @@
   {
     "name": "tgt_1",
     "init_world_pos": {
-      "x":15,
+      "x":18,
       "y":0,
       "z":0
     },
@@ -16,7 +16,7 @@
   {
     "name": "tgt_2",
     "init_world_pos": {
-      "x":5,
+      "x":3,
       "y":0,
       "z":0
     },

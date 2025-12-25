@@ -2,11 +2,12 @@ from abc import abstractmethod
 import logging
 import numpy as np
 import matplotlib.pyplot as plt
-import time
-from scipy.signal import get_window
+from scipy.signal import get_window, convolve2d
 from scipy.constants import c
-
+from scipy.ndimage import maximum_filter
 from utility import PlotConfig, PlotType, ScaleDB, measure_time
+
+
 
 class Pipeline:
     """
@@ -375,14 +376,77 @@ class DopplerFFT(PipelineModule):
 
         range_doppler_fft =np.fft.fftshift(fftout,axes=0)
 
-
         old_plot_data = metadata.get("plot_data",[])
         meta_update = {
-            "plot_data": old_plot_data + [PlotConfig(plot_type=PlotType.RANGE_DOPPLER)],
+            "plot_data": old_plot_data + [PlotConfig(plot3d=False,plot_type=PlotType.RANGE_DOPPLER)],
             "range_doppler_fft" : range_doppler_fft
         }
 
         return data, meta_update
+
+
+class CaCfarModule(PipelineModule):
+    def __init__(self,num_train=(10,4), num_guard=(5,2), pfa=1e-2, for_rx = 0):
+        super().__init__()
+        self.num_train = num_train
+        self.num_guard = num_guard
+        self.pfa = pfa
+        self.for_rx = for_rx
+
+    @measure_time
+    def run(self,data,metadata=None):
+        Tr, Td = self.num_train
+        Gr, Gd = self.num_guard
+        rd_data = metadata.get("range_doppler_fft").copy()
+        if rd_data is not None:
+            rd_data = data.copy()
+        
+        
+
+        win_r = Tr + Gr
+        win_d = Td + Gd
+        mask = np.ones((2*win_r+1, 2*win_d+1))
+        
+        mask[win_r-Gr : win_r + Gr +1, win_d - Gd : win_d +Gd +1] = 0
+
+        n_valid_cells = np.sum(mask)
+        data_norm = np.max(rd_data[:,:,self.for_rx])
+        rd_data[:,:,self.for_rx] = rd_data[:,:,self.for_rx] / data_norm
+        rd_data = 20* np.log10(rd_data +  1e-12)
+
+        noise_sum = convolve2d(rd_data[:,:,self.for_rx],mask,mode='same')
+
+        noise_avg_db = 20 * np.log10(np.abs(noise_sum/ n_valid_cells))
+
+        alpha = n_valid_cells * ((1/self.pfa)**(1/n_valid_cells)-1)
+
+        alpha_db = 20 * np.log10(np.abs(alpha))
+
+        threshold_db = noise_avg_db + alpha_db
+        map_to_check = (20 * np.log10(np.abs(metadata.get("range_doppler_fft")[:,:,self.for_rx])))
+        raw_det = map_to_check > threshold_db 
+
+        local_max = (map_to_check == maximum_filter(map_to_check, size=3))
+
+        detections = raw_det & local_max
+
+       
+        
+        target_map = detections.astype(int)
+        target_index = np.argwhere(detections)
+
+        
+        
+        self.logger.info(f"Detected : {target_index.shape[0]} targets")
+
+
+        meta_update = {
+            "ca_cfar_threshold" : threshold_db,
+            "ca_cfar_detections": detections,
+            "ca_cfar_target_map" : target_map
+        }
+        return data, meta_update
+
 
 class PlotModule(PipelineModule):
     """
@@ -462,6 +526,8 @@ class PlotModule(PipelineModule):
                 case ScaleDB.POWER:
                     db_factor = 10
                     label_z = "Power [db]"
+                case ScaleDB.NONE:
+                    db_factor = 0
                 case _:
                     raise ValueError(f"unknown ScaleDB selected")
 
@@ -481,17 +547,61 @@ class PlotModule(PipelineModule):
                 plt.xlabel(label_x)
                 plt.ylabel(label_y)
                 plt.title(title)
+                if "ca_cfar_detections" in metadata and plot.plot_type is not PlotType.RANGE:
+                    det = metadata["ca_cfar_detections"].T
+                    det_y, det_x = np.where(det)
+
+                    plt.scatter(
+                        x_axis[det_x],
+                        y_axis[det_y],
+                        s=12,
+                        c="red",
+                        marker="o",
+                        label="Detections"
+                    )
+                    plt.legend()
+
                 plt.show()
             
             else:
+                
                 X, Y = np.meshgrid(x_axis, y_axis, indexing='ij')
                 fig = plt.figure(figsize=(12, 7))
                 ax = fig.add_subplot(111, projection='3d')
-                surf = ax.plot_surface(X, Y, scaled_data,
+                surf = ax.plot_surface(X, Y, scaled_data.T,
                                        cmap='viridis')
                 fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label=label_z)
                 ax.set_xlabel(label_x)
                 ax.set_ylabel(label_y)
                 ax.set_zlabel(label_z)
-                ax.title(title)
+                ax.set_title(title)
+
+                if "ca_cfar_threshold" in metadata:
+                    threshold = metadata["ca_cfar_threshold"]
+                   
+                    ax.plot_surface(
+                        X, Y, threshold,
+                        cmap='Reds',
+                        linewidth=0,
+                        antialiased=True,
+                        alpha=0.35   
+                    )
+                
+                if "ca_cfar_detections" in metadata:
+                    det = metadata["ca_cfar_detections"]
+
+                    det_x, det_y = np.where(det)
+                    det_z = scaled_data[det_y, det_x]
+
+                    ax.scatter(
+                        x_axis[det_x],
+                        y_axis[det_y],
+                        det_z,
+                        c="red",
+                        s=20,
+                        marker="o",
+                        label="Detections"
+                    )
+                    ax.legend()
+
                 plt.show()
