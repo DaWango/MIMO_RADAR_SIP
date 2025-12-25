@@ -9,6 +9,8 @@ from utility import PlotConfig, PlotType, ScaleDB, measure_time
 
 
 
+from utility import PlotConfig, PlotType, ScaleDB, measure_time
+
 class Pipeline:
     """
     Processing pipeline for sequential execution of radar signal processing modules.
