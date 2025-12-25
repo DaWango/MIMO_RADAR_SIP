@@ -1,6 +1,6 @@
 {
   "sim_config":{
-    "awgn_snr_db": 15
+    "awgn_snr_db": 20
   },
   "radar_frontend": {
     "carrier_frequency_hz": 77e9,

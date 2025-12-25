@@ -97,8 +97,8 @@ class RadarFrontend:
         self.log = logging.getLogger(__name__)
         self.radar_config = radar_config
         self.radar_pos = np.zeros(3)
-        self.A_tx = 1.0 # TODO calculate A_tx dep on power
-        self.A_rx = 0.7 # TODO calculate A_rx with radar eq
+        self.A_tx = .4 # TODO calculate A_tx dep on power
+        self.A_rx = 0.2 # TODO calculate A_rx with radar eq
         self.m = self.radar_config.chirp_bandwidth_hz / self.radar_config.T_k
         self.dt = 1 / self.radar_config.sampling_rate_hz
         self.tx_antennas = list[RadarAntenna]
@@ -336,6 +336,7 @@ class RadarBackend():
         self.pipeline.add_module(TDMRemapper)
         self.pipeline.add_module(RangeFFT, axis=1, keep_single_sided=True, nfft_range='samples')
         self.pipeline.add_module(DopplerFFT)
+        self.pipeline.add_module(CaCfarModule)
         self.pipeline.add_module(PlotModule)
 
     def start_sip(self, data):
